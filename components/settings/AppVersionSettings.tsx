@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useEffectEvent, useState, useTransition } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { SettingsSection } from './SettingsSection';
 import type { AppReleaseEntry, AppUpdateResponse } from '@/lib/types/app-update';
@@ -107,11 +107,12 @@ function ReleaseNotesBlock({
 export function AppVersionSettings() {
   const [data, setData] = useState<AppUpdateResponse | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchUpdateInfo = useEffectEvent(async () => {
-    setIsRefreshing(true);
+  const fetchUpdateInfo = useEffectEvent(async (manual: boolean = false) => {
+    if (manual) {
+      setIsRefreshing(true);
+    }
 
     try {
       const response = await fetch('/api/app-update', {
@@ -126,53 +127,36 @@ export function AppVersionSettings() {
       }
 
       const payload = (await response.json()) as AppUpdateResponse;
-
-      startTransition(() => {
-        setData(payload);
-        setHasLoaded(true);
-      });
+      setData(payload);
+      setHasLoaded(true);
+    } catch (error) {
+      setHasLoaded(true);
+      setData((previous) => ({
+        currentVersion: previous?.currentVersion || '未知',
+        currentRelease: previous?.currentRelease || null,
+        latestVersion: previous?.latestVersion || previous?.currentVersion || '未知',
+        latestRelease: previous?.latestRelease || previous?.currentRelease || null,
+        status: 'check-failed',
+        updateAvailable: false,
+        checkedAt: new Date().toISOString(),
+        checkedRemotely: false,
+        usedRemoteManifest: false,
+        source: previous?.source || DEFAULT_SOURCE,
+        error: error instanceof Error ? error.message : '未知错误',
+      }));
     } finally {
-      setIsRefreshing(false);
+      if (manual) {
+        setIsRefreshing(false);
+      }
     }
   });
 
   useEffect(() => {
-    void fetchUpdateInfo().catch((error) => {
-      startTransition(() => {
-        setHasLoaded(true);
-        setData((previous) => ({
-          currentVersion: previous?.currentVersion || '未知',
-          currentRelease: previous?.currentRelease || null,
-          latestVersion: previous?.latestVersion || previous?.currentVersion || '未知',
-          latestRelease: previous?.latestRelease || previous?.currentRelease || null,
-          status: 'check-failed',
-          updateAvailable: false,
-          checkedAt: new Date().toISOString(),
-          checkedRemotely: false,
-          usedRemoteManifest: false,
-          source: previous?.source || DEFAULT_SOURCE,
-          error: error instanceof Error ? error.message : '未知错误',
-        }));
-      });
-    });
-  }, [fetchUpdateInfo, startTransition]);
+    void fetchUpdateInfo(false);
+  }, []);
 
   const handleRefresh = () => {
-    void fetchUpdateInfo().catch((error) => {
-      startTransition(() => {
-        setData((previous) =>
-          previous
-            ? {
-                ...previous,
-                status: 'check-failed',
-                error: error instanceof Error ? error.message : '未知错误',
-                checkedAt: new Date().toISOString(),
-              }
-            : previous,
-        );
-        setHasLoaded(true);
-      });
-    });
+    void fetchUpdateInfo(true);
   };
 
   const statusMeta = getStatusMeta(data);
@@ -215,7 +199,6 @@ export function AppVersionSettings() {
             <p className="mt-3 text-sm text-[var(--text-color-secondary)]">{statusMeta.description}</p>
             <p className="mt-2 text-xs text-[var(--text-color-secondary)]">
               上次检查：{hasLoaded ? formatDateLabel(data?.checkedAt) : '正在检查'}
-              {isPending ? '（正在整理结果）' : ''}
             </p>
           </div>
         </div>
